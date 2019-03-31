@@ -30,14 +30,18 @@ import scala.collection.JavaConversions
   * @author tstearns
   * based on GraphiteSink.scala from the Spark codebase
   */
-class InfluxDbSink(val property: Properties, val registry: MetricRegistry,
-    securityMgr: SecurityManager) extends Sink {
+class InfluxDbSink(
+  val property: Properties,
+  val registry: MetricRegistry,
+  securityMgr: SecurityManager
+) extends Sink {
   val INFLUX_DEFAULT_TIMEOUT = 1000 // milliseconds
   val INFLUX_DEFAULT_PERIOD = 10
   val INFLUX_DEFAULT_UNIT = TimeUnit.SECONDS
   val INFLUX_DEFAULT_PROTOCOL = "https"
   val INFLUX_DEFAULT_PREFIX = ""
   val INFLUX_DEFAULT_TAGS = ""
+  val INFLUX_DEFAULT_KEY_MEASUREMENTMAPPINGS = ""
 
   val INFLUX_KEY_PROTOCOL = "protocol"
   val INFLUX_KEY_HOST = "host"
@@ -48,6 +52,7 @@ class InfluxDbSink(val property: Properties, val registry: MetricRegistry,
   val INFLUX_KEY_AUTH = "auth"
   val INFLUX_KEY_PREFIX = "prefix"
   val INFLUX_KEY_TAGS = "tags"
+  val INFLUX_KEY_MEASUREMENTMAPPINGS = "measurementMappings"
 
   def propertyToOption(prop: String): Option[String] = Option(property.getProperty(prop))
 
@@ -63,13 +68,14 @@ class InfluxDbSink(val property: Properties, val registry: MetricRegistry,
     throw new Exception("InfluxDb sink requires 'database' property.")
   }
 
-  val protocol = propertyToOption(INFLUX_KEY_PROTOCOL).getOrElse(INFLUX_DEFAULT_PROTOCOL)
+  val auth = property.getProperty(INFLUX_KEY_AUTH)
+  val database = propertyToOption(INFLUX_KEY_DATABASE).get
   val host = propertyToOption(INFLUX_KEY_HOST).get
   val port = propertyToOption(INFLUX_KEY_PORT).get.toInt
-  val database = propertyToOption(INFLUX_KEY_DATABASE).get
-  val auth = property.getProperty(INFLUX_KEY_AUTH)
   val prefix = propertyToOption(INFLUX_KEY_PREFIX).getOrElse(INFLUX_DEFAULT_PREFIX)
+  val protocol = propertyToOption(INFLUX_KEY_PROTOCOL).getOrElse(INFLUX_DEFAULT_PROTOCOL)
   val tags = propertyToOption(INFLUX_KEY_TAGS).getOrElse(INFLUX_DEFAULT_TAGS)
+  val measurementMappings = propertyToOption(INFLUX_KEY_MEASUREMENTMAPPINGS).getOrElse(INFLUX_DEFAULT_KEY_MEASUREMENTMAPPINGS)
 
   val applicationId = {
     // On the driver, the application id is not on the default SparkConf, so attempt to get from the SparkEnv
@@ -108,6 +114,12 @@ class InfluxDbSink(val property: Properties, val registry: MetricRegistry,
     .map(s => TimeUnit.valueOf(s.toUpperCase))
     .getOrElse(INFLUX_DEFAULT_UNIT)
 
+  val customMeasurementMappings = measurementMappings.split(",")
+    .filter(pair => pair.contains(":"))
+    .map(pair => (pair.substring(0, pair.indexOf(":")), pair.substring(pair.indexOf(":") + 1, pair.length())))
+    .filter { case (k, v) => !k.isEmpty() && !v.isEmpty() }
+    .toMap
+
   MetricsSystem.checkMinimalPollingPeriod(pollUnit, pollPeriod)
 
   val sender : InfluxDbSender = new InfluxDbHttpSender(protocol, host, port, database, auth,
@@ -118,6 +130,7 @@ class InfluxDbSink(val property: Properties, val registry: MetricRegistry,
       .convertRatesTo(TimeUnit.SECONDS)
       .withTags(JavaConversions.mapAsJavaMap(allTags))
       .groupGauges(true)
+      .measurementMappings(JavaConversions.mapAsJavaMap(customMeasurementMappings))
       .build(sender)
 
   override def start() {
