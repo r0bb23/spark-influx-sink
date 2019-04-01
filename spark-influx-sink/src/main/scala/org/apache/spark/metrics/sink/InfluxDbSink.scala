@@ -16,12 +16,12 @@
 package org.apache.spark.metrics.sink
 
 import com.codahale.metrics.MetricRegistry
-import com.izettle.metrics.influxdb.{InfluxDbHttpSender, InfluxDbReporter, InfluxDbSender}
+import com.izettle.metrics.influxdb.{ InfluxDbHttpSender, InfluxDbReporter, InfluxDbSender }
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 import org.apache.spark.metrics.MetricsSystem
 import org.apache.spark.util.Utils
-import org.apache.spark.{SecurityManager, SparkConf, SparkEnv}
+import org.apache.spark.{ SecurityManager, SparkConf, SparkEnv }
 import scala.collection.JavaConversions
 
 /**
@@ -72,8 +72,8 @@ class InfluxDbSink(
   val protocol = propertyToOption(INFLUX_KEY_PROTOCOL).getOrElse(INFLUX_DEFAULT_PROTOCOL)
   val tags = propertyToOption(INFLUX_KEY_TAGS).getOrElse(INFLUX_DEFAULT_TAGS)
 
-  val applicationId = {
-    // On the driver, the application id is not on the default SparkConf, so attempt to get from the SparkEnv
+  val (applicationId, executorId) = {
+    // On the driver, the ids are not on the default SparkConf, so attempt to get from the SparkEnv
     // On executors, the SparkEnv will not be initialized by the time the metrics get initialized.
     // If all else fails, simply get the process name.
     val env = SparkEnv.get
@@ -82,16 +82,23 @@ class InfluxDbSink(
     } else {
       new SparkConf()
     }
-    val appFromRegistry = JavaConversions.asScalaSet(registry.getNames)
+    val baseAppRegistry = JavaConversions.asScalaSet(registry.getNames)
       .filter(name => name != null)
       .find(name => name.startsWith("app") && name.contains("."))
+    val appFromRegistry = baseAppRegistry
       .map(name => name.substring(0, name.indexOf('.')))
-    conf.getOption("spark.app.id").orElse(appFromRegistry).getOrElse(Utils.getProcessName())
+    val execFromRegistry = baseAppRegistry
+      .map(name => name.substring(name.indexOf('.') + 1, name.indexOf('.', name.indexOf('.') + 1)))
+    val appId = conf.getOption("spark.app.id").orElse(appFromRegistry).getOrElse(Utils.getProcessName())
+    val execId = conf.getOption("spark.executor.id").orElse(execFromRegistry).getOrElse(Utils.getProcessName())
+
+    (appId, execId)
   }
 
   val defaultTags = Seq(
     "host" -> Utils.localHostName(),
-    "appId" -> applicationId)
+    "appId" -> applicationId,
+    "executorId" -> executorId)
 
   // example custom tag input string: "product:my_product,parent:my_service"
   val customTags = tags.split(",")
@@ -110,11 +117,11 @@ class InfluxDbSink(
     .getOrElse(INFLUX_DEFAULT_UNIT)
 
   val propNames = property.propertyNames()
-  var measurementMappings = ("" -> "")
+  var measurementMappings = scala.collection.immutable.Map[String, String]()
   while (propNames.hasMoreElements) {
     val propName = propNames.nextElement.toString
     if (propName.contains("measurementMappings")) {
-      measurementMappings += (propName.replace("measurementMappings.", "") -> property.getProperty(propName))
+      measurementMappings += (propName.replaceAll(".*measurementMappings_", "").replace("_", ".") -> property.getProperty(propName))
     }
   }
 
@@ -128,7 +135,7 @@ class InfluxDbSink(
       .convertRatesTo(TimeUnit.SECONDS)
       .withTags(JavaConversions.mapAsJavaMap(allTags))
       .groupGauges(true)
-      .measurementMappings(JavaConversions.mapAsJavaMap(measurementMappings.toMap))
+      .measurementMappings(JavaConversions.mapAsJavaMap(measurementMappings))
       .build(sender)
 
   override def start() {
