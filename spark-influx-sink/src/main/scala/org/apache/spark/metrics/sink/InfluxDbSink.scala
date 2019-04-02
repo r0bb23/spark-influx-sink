@@ -120,8 +120,9 @@ class InfluxDbSink(
   var measurementMappings = scala.collection.immutable.Map[String, String]()
   while (propNames.hasMoreElements) {
     val propName = propNames.nextElement.toString
-    if (propName.contains("measurementMappings")) {
-      measurementMappings += (propName.replaceAll(".*measurementMappings_", "").replace("_", ".") -> property.getProperty(propName))
+    if (propName.contains("measurementMapping")) {
+      val measurementMapping = property.getProperty(propName).split(":")
+      measurementMappings += (measurementMapping(0) -> measurementMapping(1))
     }
   }
 

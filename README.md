@@ -21,6 +21,9 @@ Example metrics.properties snippet:
     *.sink.influx.database=my_metrics
     *.sink.influx.auth=metric_client:PASSWORD
     *.sink.influx.tags=product:my_product,parent:my_service
+    *.sink.influx.measurementMappingXXXX=measurement_mapping:.*measurement_regex.*
+    *.sink.influx.measurementMappingXXXX=...
+
 
 ## Notes
 
