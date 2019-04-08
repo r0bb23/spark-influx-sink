@@ -39,6 +39,7 @@ class InfluxDbSink(
   val INFLUX_DEFAULT_TAGS = ""
   val INFLUX_DEFAULT_TIMEOUT = 1000 // milliseconds
   val INFLUX_DEFAULT_UNIT = TimeUnit.SECONDS
+  val INFLUX_DEFAULT_INC_HIGH_CARD_TAGS = "true"
 
   val INFLUX_KEY_AUTH = "auth"
   val INFLUX_KEY_DATABASE = "database"
@@ -49,6 +50,7 @@ class InfluxDbSink(
   val INFLUX_KEY_PROTOCOL = "protocol"
   val INFLUX_KEY_TAGS = "tags"
   val INFLUX_KEY_UNIT = "unit"
+  val INFLUX_INC_HIGH_CARD_TAGS = "includeHighCardinalityTags"
 
   def propertyToOption(prop: String): Option[String] = Option(property.getProperty(prop))
 
@@ -71,6 +73,7 @@ class InfluxDbSink(
   val prefix = propertyToOption(INFLUX_KEY_PREFIX).getOrElse(INFLUX_DEFAULT_PREFIX)
   val protocol = propertyToOption(INFLUX_KEY_PROTOCOL).getOrElse(INFLUX_DEFAULT_PROTOCOL)
   val tags = propertyToOption(INFLUX_KEY_TAGS).getOrElse(INFLUX_DEFAULT_TAGS)
+  val incHighCardTags = propertyToOption(INFLUX_INC_HIGH_CARD_TAGS).getOrElse(INFLUX_DEFAULT_INC_HIGH_CARD_TAGS).toBoolean
 
   val (applicationId, executorId) = {
     // On the driver, the ids are not on the default SparkConf, so attempt to get from the SparkEnv
@@ -95,10 +98,15 @@ class InfluxDbSink(
     (appId, execId)
   }
 
-  val defaultTags = Seq(
-    "host" -> Utils.localHostName(),
-    "appId" -> applicationId,
-    "executorId" -> executorId)
+  val defaultTags = if (incHighCardTags) {
+    Seq(
+      "host" -> Utils.localHostName(),
+      "appId" -> applicationId,
+      "executorId" -> executorId
+    )
+  } else {
+    Seq("executorId" -> executorId)
+  }
 
   // example custom tag input string: "product:my_product,parent:my_service"
   val customTags = tags.split(",")
